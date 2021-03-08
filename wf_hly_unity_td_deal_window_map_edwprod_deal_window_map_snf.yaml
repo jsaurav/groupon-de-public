@@ -1,0 +1,131 @@
+# ****** Important - Do not remove any key from the config, even if you don't need them for your pipeline ******.
+# All the fields which starts with m_ are mandatory and must have a value.
+# All the fields which starts with o_ are optional and value may vary with different pipelines.
+# All the keys which have value DEFAULT_FROM_GLOBAL, will read their values from SystemManager.
+# All the keys which have value DEFAULT_WILL_BE_CONSTRUCTED, will construct the value on the fly using global
+  # variable and user provided input.
+# Under m_dml, you have to provide implementation details of only the dml operation which you are invoking.
+  #
+  # e.g. if you are using merge api, then you can remove other "delete","update","full_refresh","delete_insert","custom"
+  # , "insert" from m_dml section.
+
+
+load_config:
+  ############################################################################################################
+  ###### USER INPUT SECTION  - This is the section where user has to provide the input specific to ###########
+  ######                       there pipeline. All the fields starts with "m_" must have an user   ###########
+  ######                       provided value.                                                     ###########
+  ############################################################################################################
+  # API Name which you want to invoke. Possible options are - merge, update, delete, delete_insert, full_refresh
+  m_api_name: delete_insert
+  # Name of the pipeline.
+  m_pipeline_name: "wf_hly_unity_td_deal_window_map"
+  # Service Name which you want to invoke.
+  m_service_name: SnowFlakeLoadService
+  # SnowFlake connection info will be defined here.
+  # We will be fetching this information AWS SSM.
+  m_sf_connection_info:
+    # Login Information. It contains username, password,role and warehouse name.
+    # You don't have to change it unless you know what you are doing.
+    m_sf_ssm_login_key: DEFAULT
+    # Snowflake database name to which you want to connect.
+    m_sf_database_name: DEFAULT
+    # Snowflake schema name.
+    m_sf_schema_name: edwprod
+  # DeltaLake Configuration starts here.
+  # Here, you will be providing all details about the DML operation. See below for more details.
+  m_delta:
+    # Provide a list of columns on which your data is partitioned. Please see below for an example.
+    # "age integer"
+    o_partition_column:
+    # Name of the S3 bucket.
+    m_bucket_name: DEFAULT
+    # Name of the target schema name.
+    m_target_schema_name: DERIVED
+    # Name of the target table.
+    m_target_table_name: deal_window_map
+    # Name of the dml operation which you want to perform on your data.
+    m_dml_operation: DERIVED
+    # DML operation detail starts here.
+    m_dml:
+      delete_insert:
+        # Location on S3 where LRF files are present.
+        # Pattern - s3://<bucket_name>/pipeline/<pipeline_name>/lrf/<table_name>
+        m_lrf_files_path: DERIVED
+        # Please provide the delete query here.
+        # Syntax - MERGE INTO <target_table> USING <LRF_TABLE>
+        #         ON <join_expr> { matchedClause | notMatchedClause } [ ... ]
+        # e.g. merge into RATINGS using {lrf_table}
+        #      on RATINGS.userId = {lrf_table}.UserId
+        #      when matched then delete
+        m_delete_query: merge into deal_window_map using {lrf_table}
+                        on deal_window_map.deal_uuid = {lrf_table}.deal_uuid
+                        and {lrf_table}.dwh_active = 1
+                        when matched then delete
+        # This flag controls if you want to dedup your lrf file based
+        # on the join columns or custom columns. Deduped lrf will only
+        # be used in delete operation and for insert operation we will
+        # use the original lrf.
+        o_is_dedup_needed_for_delete: True
+        # Comma separated list of column names on which dedup
+        # needs to be done. It is highly recommended
+        # that you should use the same columns for dedup
+        # on which you are joining lrf and target table.
+        # e.g. o_dedup_columns: 'col1,col2,col3'
+        o_dedup_columns: 'deal_uuid'
+        # Please provide the insert query here.
+        # Syntax - MERGE INTO <target_table> USING <LRF_TABLE>
+        #         ON <join_expr> { matchedClause | notMatchedClause } [ ... ]
+        # e.g. merge into RATINGS using {lrf_table}
+        #      on RATINGS.userId = {lrf_table}.userId
+        #      when not matched then insert (userId,movieId,rating,timestamp,insert_dt,insert_user,tmp_field)
+        #      values ({lrf_table}.userId,{lrf_table}.movieId,{lrf_table}.rating,{lrf_table}.timestamp,
+        #      {lrf_table}.insert_dt,{lrf_table}.insert_user,{lrf_table}.tmp_field)
+        m_insert_query: insert into deal_window_map (select * from {lrf_table})
+      full_refresh:
+        # Location on S3, where load ready files are present. These load ready files
+        # will be used to load data back into target table.
+        # Pattern - s3://<bucket_name>/pipeline/<pipeline_name>/lrf/<table_name>
+        m_lrf_files_path: DERIVED
+        # Set to TRUE, if you intend to persist older data before delete operation performs.
+        # This functionality is not yet supported.
+        m_preserve_old_data: DEFAULT
+
+
+    ############################################################################################################
+    ##### DEFAULT SECTION -  In an ideal scenario you shouldn't be overriding any of the below values ##########
+    #####                    unless you are 100% confident of what you are doing. All the values below #########
+    #####                    will either be read from SystemsManager or will be derived using user input #######
+    #####                    and global variables.                                                   ###########
+    ############################################################################################################
+
+
+  # Whether to stop the spark session on job completion or not.
+  # This value should always be True, unless you are running unit tests.
+  # Default value is True.
+  m_stop_spark_session_on_completion: DEFAULT
+  # Provide Cluster information.
+  m_cluster:
+    # Spark Application Name.
+    m_app_name: DERIVED
+    # Resource Manager for your cluster. Should always be yarn.
+    m_master: DEFAULT
+  # All the bookkeeping tasks will be defined here.
+  # As of now only 3 types of tasks are defined.
+  #   1. DeltaLogRenameTask
+  #   2. StatusFileCreationTask
+  #   3. AuditTableTask
+  # If more type of tasks are added in future we will update you.
+  m_book_keeping:
+    # Name of the AuditTableTask.
+    # This task will make an entry in JOB_INSTANCES & TABLE_LIMITS table.
+    m_t_audit_table_entry:
+      # Should be set to TRUE if you want to make an entry into audit table after spark job is completed else set False.
+      # Default value is True.
+      m_is_audit_table_entry_required: DEFAULT
+      # Secret name of the connection on Secret Manager.
+      # It will be read from SecretManager.
+      m_secret_name: DEFAULT
+      # region in which secret was created.
+      # It will be read from SecretManager.
+      m_region_name: DEFAULT
