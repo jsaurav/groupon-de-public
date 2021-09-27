@@ -1,0 +1,530 @@
+# ****** Important - Do not remove any key from the config, even if you don't need them for your pipeline ******.
+# All the fields which starts with m_ are mandatory and must have a value.
+# All the fields which starts with o_ are optional and value may vary with different pipelines.
+# All the keys which have value "DEFAULT", will read their values from SystemManager.
+# All the keys which have value "DERIVED", will construct the value on the fly using global
+# variable and user provided input.
+# ds1 is alias for target_table datasource and ds2 for lrf datasource. You will need this information later.
+# Under m_dml, you have to provide implementation details of only the dml operation which you are invoking.
+# e.g. if you are using merge api, then you can remove other "delete","update","full_refresh","delete_insert","custom"
+# ,"insert "from m_dml section. When you remove be mindful of indentation.
+# Please be careful with indentation, yaml expects tab indentation.
+# @v1.1.0 -
+#   - Support for Dedup is added in merge and delete_insert api.
+#   - Added new custom_v2 api.
+
+load_config:
+  ############################################################################################################
+  ###### USER INPUT SECTION  - This is the section where user has to provide the input specific to ###########
+  ######                       there pipeline. All the fields starts with "m_" must have an user   ###########
+  ######                       provided value.                                                     ###########
+  ############################################################################################################
+  # API Name which you want to invoke. Possible options are - merge, update, delete, delete_insert, full_refresh, custom
+  # ,insert and dedup.
+  m_api_name: custom_v2
+  # Name of the pipeline.
+  m_pipeline_name: "wf_hly_transactions"
+  # Service Name which you want to invoke.
+  m_service_name: S3DeltaLakeService
+  # DeltaLake Configuration starts here.
+  m_delta:
+    # Duration in hours to be passed to vacuum api. To delete all the older version of files
+    # you should be passing some very small duration e.g. .000001
+    # Default value is .000001
+    o_time_travel_in_hrs: DEFAULT
+    # Provide a list of columns on which your data is partitioned.
+    # Please see below for an example. if your column name is "age" and
+    # type is "integer", then value for this key would be "age integer"
+    o_partition_column: "source_key string , transaction_date date"
+    # Name of the S3 bucket.
+    m_bucket_name: DEFAULT
+    # Bast Level. Possible values are high and low.
+    # If data type is either c1 or c2,then please provide value as high.
+    # If data type is c3 or c4 or c5 ,then please provide value as low.
+    m_bast_level: low
+    # Name of the target table.
+    m_target_table_name: fact_gbl_transactions
+    # Name of the target schema name.
+    m_target_schema_name: edwprod
+    # Location on S3 where target files (parquet) are present.
+    # Value for this will be constructed, using global variables and
+    # user provided input.
+    # Pattern - s3://<bucket_name>/target/<m_bast_level>/<m_target_schema_name>/<m_target_table_name>
+    m_target: DERIVED
+    # Name of the dml operation which you want to perform on your data.
+    # It's value will be derived from m_api_name above.
+    m_dml_operation: DERIVED
+    # Specify whether vacuum needs to be run or not after delta
+    # process is completed. Default is False.
+    o_run_vacuum: DEFAULT
+    # DML operation detail starts here.
+    # Here, you will be providing all details about the DML operation. See below for more details.
+    # You have to provide implementation details of only the m_dml_operation
+    # which you had mentioned above.
+    # Other api implementation detail you can remove.
+    # Please be careful with indentation.
+    m_dml:
+      custom_v2:
+        # Provide an ordered list of the predefined apis. Please do not forget to add
+        # the unique suffix at the end of each api name.
+        # e.g. m_apis_list: ['merge_1','merge_2','insert_1']
+        m_apis_list: ['delete_insert_1','merge_1','merge_2','merge_3','merge_4','merge_5','merge_6' ]
+        # Provide definition of all the apis you had defined above.
+        # Please refer an example file on how to define apis definition.
+        m_apis_def:
+          delete_insert_1:
+            # Join condition for LRF and target table.
+            m_delete_insert_join_condition: "{ds1}.order_id = {ds2}.order_id and {ds1}.transaction_date_ts = {ds2}.transaction_date_ts and {ds1}.parent_order_id = {ds2}.parent_order_id and {ds1}.order_date = {ds2}.order_date and {ds1}.country_id = {ds2}.country_id and {ds1}.source_key = {ds2}.source_key and {ds1}.action = {ds2}.action and {ds1}.platform_key = {ds2}.platform_key"
+            # This flag controls if you want to dedup your lrf file based
+            # on the join columns or custom columns. Deduped lrf will only
+            # be used in delete operation and for insert operation we will
+            # use the original lrf.
+            o_is_dedup_needed_for_delete: False
+            # Comma separated list of column names on which dedup
+            # needs to be done. It is highly recommended
+            # that you should use the same columns for dedup
+            # on which you are joining lrf and target table.
+            # e.g. o_dedup_columns: 'col1,col2,col3'
+            o_dedup_columns:
+            # Location on S3, where load ready files are present. These load ready files
+            # will be used to load data back into target table.
+            # Pattern - s3://<bucket_name>/pipeline/<pipeline_name>/lrf/<table_name>
+            m_lrf_files_path: s3://<bucket_name>/pipeline/wf_hly_transactions/lrf/stg_fact_gbl_txns_formatted
+          merge_1:
+            # Location on S3 where LRF files are present.
+            # Pattern - s3://<bucket_name>/<pipeline_name>/lrf/<table_name>
+            m_lrf_files_path: s3://<bucket_name>/pipeline/wf_hly_transactions/lrf/delete_cancelled_orders
+            # Please provide a join condition, this condition will be used to
+            # join target table and load ready file/s.
+            # ds1 is alias for target table.
+            # ds2 is alias for LRF.
+            m_merge_join_condition: "{ds1}.order_id = {ds2}.order_id and {ds1}.parent_order_id = {ds2}.parent_order_id and {ds1}.action = {ds2}.action and {ds1}.transaction_date_ts = {ds2}.transaction_date_ts and {ds1}.platform_key = {ds2}.platform_key and {ds1}.order_date = {ds2}.order_date and {ds1}.source_key = {ds2}.source_key and {ds1}.transaction_date = {ds2}.transaction_date"
+            # This flag controls if you want to dedup your lrf file based
+            # on the join columns or custom columns. Value should be True or
+            # False.
+            o_is_dedup_needed: False
+            # Columns on which dedup needs to be done. It is highly
+            # recommended that you should use the same columns for dedup
+            # on which you are joining lrf and target table.
+            # If you are providing value, it should follow the below format.
+            # e.g. o_dedup_columns: 'col1,col2,col3'
+            o_dedup_columns:
+            # Details below will be used to perform action on all the matching records.
+            m_on_match:
+              # Set the value as True if you want to perform an action on matching records.
+              m_is_action_needed: True
+              # Name of the API which you want to invoke. Possible options are.
+              # whenMatchedUpdate, whenMatchedUpdateAll, whenMatchedDelete
+              m_api: whenMatchedDelete
+              # Extra condition which you want to check on matching records.
+              o_condition:
+              # o_set below doesn't need column names if you are using whenMatchedUpdateAll api.
+              # column names and values are required only in case if you use whenMatchedUpdate api.
+              # e.g. o_set:
+              #         column_name_1: col({ds2}.column_name_1)
+              o_set:
+            # Details below will be used to perform action on all the non matching records.
+            m_on_no_match:
+              # Set the value as TRUE if you want to perform an action on matching records.
+              m_is_action_needed: False
+              # Name of the API which you want to invoke. Possible options are.
+              # whenNotMatchedInsert, whenNotMatchedInsertAll
+              m_api:
+              # Extra condition which you want to check on non matching records.
+              o_condition:
+              # o_set below doesn't need column names if you are using whenNotMatchedInsertAll api.
+              # column names and values are required only in case if you use whenNotMatchedInsert api.
+              # # e.g. o_set:
+              #          column_name_1: col({ds2}.column_name_1)
+              o_set:
+          merge_2:
+            # Location on S3 where LRF files are present.
+            # Pattern - s3://<bucket_name>/pipeline/<pipeline_name>/lrf/<table_name>
+            m_lrf_files_path: s3://<bucket_name>/pipeline/wf_hly_transactions/lrf/stg_act_and_react_and_cancel
+            # Please provide a join condition, this condition will be used to
+            # join target table and load ready file/s.
+            # ds1: target
+            # ds2: lrf
+            m_merge_join_condition: "{ds1}.user_uuid = {ds2}.user_uuid and
+                      {ds1}.action = {ds2}.action and
+                      {ds1}.country_id = {ds2}.country_id and
+                      {ds1}.platform_key = {ds2}.platform_key and
+                      {ds1}.source_key = {ds2}.source_key and
+                      {ds1}.transaction_date = {ds2}.transaction_date and
+                      {ds1}.txn_amount_loc > 0 and
+                      {ds1}.is_activation = 1 and
+                      {ds2}.flag = 'a0'"
+            # This flag controls if you want to dedup your lrf file based
+            # on the join columns or custom columns. Value should be True or
+            # False.
+            o_is_dedup_needed: False
+            # Comma separated list of column names on which dedup
+            # needs to be done. It is highly recommended
+            # that you should use the same columns for dedup
+            # on which you are joining lrf and target table.
+            # e.g. o_dedup_columns: 'col1,col2,col3'
+            o_dedup_columns:
+            # Details below will be used to perform action on all the matching records.
+            m_on_match:
+              # Set the value as True if you want to perform an action on matching records.
+              m_is_action_needed: True
+              # Name of the API which you want to invoke. Possible options are.
+              # whenMatchedUpdate, whenMatchedUpdateAll, whenMatchedDelete
+              m_api: whenMatchedUpdate
+              # Extra condition which you want to check on matching records.
+              o_condition:
+              # o_set below doesn't need column names if you are using whenMatchedUpdateAll api.
+              # column names and values are required only in case if you use whenMatchedUpdate api.
+              # e.g. o_set:
+              #         column_name_1: col({ds2}.column_name_1)
+              o_set:
+                is_activation: col({ds2}.is_activation)
+            # Details below will be used to perform action on all the non matching records.
+            m_on_no_match:
+              # Set the value as TRUE if you want to perform an action on matching records.
+              m_is_action_needed: False
+              # Name of the API which you want to invoke. Possible options are.
+              # whenNotMatchedInsert, whenNotMatchedInsertAll
+              m_api: whenNotMatchedInsertAll
+              # Extra condition which you want to check on non matching records.
+              o_condition:
+              # o_set below doesn't need column names if you are using whenNotMatchedInsertAll api.
+              # column names and values are required only in case if you use whenNotMatchedInsert api.
+              # # e.g. o_set:
+              #          column_name_1: col({ds2}.column_name_1)
+              o_set:
+          merge_3:
+            # Is Activation to 1
+            # Location on S3 where LRF files are present.
+            # Pattern - s3://<bucket_name>/pipeline/<pipeline_name>/lrf/<table_name>
+            m_lrf_files_path: s3://<bucket_name>/pipeline/wf_hly_transactions/lrf/stg_act_and_react_and_cancel
+            # Please provide a join condition, this condition will be used to
+            # join target table and load ready file/s.
+            # ds1: target
+            # ds2: lrf
+            m_merge_join_condition: "{ds1}.user_uuid = {ds2}.user_uuid and
+                                {ds1}.transaction_date_ts = {ds2}.transaction_date_ts and
+                                {ds1}.order_date_ts = {ds2}.order_date_ts and
+                                {ds1}.order_id = {ds2}.order_id and
+                                {ds1}.action = {ds2}.action and
+                                {ds1}.country_id = {ds2}.country_id and
+                                {ds1}.platform_key = {ds2}.platform_key and
+                                {ds1}.source_key = {ds2}.source_key and
+                                {ds1}.transaction_date = {ds2}.transaction_date and
+                                {ds1}.action in ('authorize', 'capture') and
+                                {ds1}.txn_amount_loc > 0 and
+                                {ds2}.flag = 'a1'"
+            # This flag controls if you want to dedup your lrf file based
+            # on the join columns or custom columns. Value should be True or
+            # False.
+            o_is_dedup_needed: False
+            # Comma separated list of column names on which dedup
+            # needs to be done. It is highly recommended
+            # that you should use the same columns for dedup
+            # on which you are joining lrf and target table.
+            # e.g. o_dedup_columns: 'col1,col2,col3'
+            o_dedup_columns:
+            # Details below will be used to perform action on all the matching records.
+            m_on_match:
+              # Set the value as True if you want to perform an action on matching records.
+              m_is_action_needed: True
+              # Name of the API which you want to invoke. Possible options are.
+              # whenMatchedUpdate, whenMatchedUpdateAll, whenMatchedDelete
+              m_api: whenMatchedUpdate
+              # Extra condition which you want to check on matching records.
+              o_condition:
+              # o_set below doesn't need column names if you are using whenMatchedUpdateAll api.
+              # column names and values are required only in case if you use whenMatchedUpdate api.
+              # e.g. o_set:
+              #         column_name_1: col({ds2}.column_name_1)
+              o_set:
+                is_activation: col({ds2}.is_activation)
+            # Details below will be used to perform action on all the non matching records.
+            m_on_no_match:
+              # Set the value as TRUE if you want to perform an action on matching records.
+              m_is_action_needed: False
+              # Name of the API which you want to invoke. Possible options are.
+              # whenNotMatchedInsert, whenNotMatchedInsertAll
+              m_api: whenNotMatchedInsertAll
+              # Extra condition which you want to check on non matching records.
+              o_condition:
+              # o_set below doesn't need column names if you are using whenNotMatchedInsertAll api.
+              # column names and values are required only in case if you use whenNotMatchedInsert api.
+              # # e.g. o_set:
+              #          column_name_1: col({ds2}.column_name_1)
+              o_set:
+          merge_4:
+            # ReActivation to 0
+            # Location on S3 where LRF files are present.
+            # Pattern - s3://<bucket_name>/pipeline/<pipeline_name>/lrf/<table_name>
+            m_lrf_files_path: s3://<bucket_name>/pipeline/wf_hly_transactions/lrf/stg_act_and_react_and_cancel
+            # Please provide a join condition, this condition will be used to
+            # join target table and load ready file/s.
+            # ds1: target
+            # ds2: lrf
+            m_merge_join_condition: "{ds1}.user_uuid = {ds2}.user_uuid and
+                                {ds1}.action = {ds2}.action and
+                                {ds1}.country_id = {ds2}.country_id and
+                                {ds1}.platform_key = {ds2}.platform_key and
+                                {ds1}.source_key = {ds2}.source_key and
+                                {ds1}.transaction_date = {ds2}.transaction_date and
+                                {ds1}.txn_amount_loc > 0 and
+                                {ds1}.is_reactivation = 1 and
+                                {ds2}.flag = 'ra0'"
+            # This flag controls if you want to dedup your lrf file based
+            # on the join columns or custom columns. Value should be True or
+            # False.
+            o_is_dedup_needed: False
+            # Comma separated list of column names on which dedup
+            # needs to be done. It is highly recommended
+            # that you should use the same columns for dedup
+            # on which you are joining lrf and target table.
+            # e.g. o_dedup_columns: 'col1,col2,col3'
+            o_dedup_columns:
+            # Details below will be used to perform action on all the matching records.
+            m_on_match:
+              # Set the value as True if you want to perform an action on matching records.
+              m_is_action_needed: True
+              # Name of the API which you want to invoke. Possible options are.
+              # whenMatchedUpdate, whenMatchedUpdateAll, whenMatchedDelete
+              m_api: whenMatchedUpdate
+              # Extra condition which you want to check on matching records.
+              o_condition:
+              # o_set below doesn't need column names if you are using whenMatchedUpdateAll api.
+              # column names and values are required only in case if you use whenMatchedUpdate api.
+              # e.g. o_set:
+              #         column_name_1: col({ds2}.column_name_1)
+              o_set:
+                is_reactivation: col({ds2}.is_reactivation)
+            # Details below will be used to perform action on all the non matching records.
+            m_on_no_match:
+              # Set the value as TRUE if you want to perform an action on matching records.
+              m_is_action_needed: False
+              # Name of the API which you want to invoke. Possible options are.
+              # whenNotMatchedInsert, whenNotMatchedInsertAll
+              m_api: whenNotMatchedInsertAll
+              # Extra condition which you want to check on non matching records.
+              o_condition:
+              # o_set below doesn't need column names if you are using whenNotMatchedInsertAll api.
+              # column names and values are required only in case if you use whenNotMatchedInsert api.
+              # # e.g. o_set:
+              #          column_name_1: col({ds2}.column_name_1)
+              o_set:
+          merge_5:
+            # Is ReActivation to 1
+            # Location on S3 where LRF files are present.
+            # Pattern - s3://<bucket_name>/pipeline/<pipeline_name>/lrf/<table_name>
+            m_lrf_files_path: s3://<bucket_name>/pipeline/wf_hly_transactions/lrf/stg_act_and_react_and_cancel
+            # Please provide a join condition, this condition will be used to
+            # join target table and load ready file/s.
+            # ds1: target
+            # ds2: lrf
+            m_merge_join_condition: "{ds1}.user_uuid = {ds2}.user_uuid and
+                                {ds1}.transaction_date_ts = {ds2}.transaction_date_ts and
+                                {ds1}.order_date_ts = {ds2}.order_date_ts and
+                                {ds1}.order_id = {ds2}.order_id and
+                                {ds1}.action = {ds2}.action and
+                                {ds1}.country_id = {ds2}.country_id and
+                                {ds1}.platform_key = {ds2}.platform_key and
+                                {ds1}.source_key = {ds2}.source_key and
+                                {ds1}.transaction_date = {ds2}.transaction_date and
+                                {ds1}.action in ('authorize', 'capture') and
+                                {ds1}.txn_amount_loc > 0 and
+                                {ds1}.is_reactivation = 0 and
+                                {ds2}.flag = 'ra1'"
+            # This flag controls if you want to dedup your lrf file based
+            # on the join columns or custom columns. Value should be True or
+            # False.
+            o_is_dedup_needed: False
+            # Comma separated list of column names on which dedup
+            # needs to be done. It is highly recommended
+            # that you should use the same columns for dedup
+            # on which you are joining lrf and target table.
+            # e.g. o_dedup_columns: 'col1,col2,col3'
+            o_dedup_columns:
+            # Details below will be used to perform action on all the matching records.
+            m_on_match:
+              # Set the value as True if you want to perform an action on matching records.
+              m_is_action_needed: True
+              # Name of the API which you want to invoke. Possible options are.
+              # whenMatchedUpdate, whenMatchedUpdateAll, whenMatchedDelete
+              m_api: whenMatchedUpdate
+              # Extra condition which you want to check on matching records.
+              o_condition:
+              # o_set below doesn't need column names if you are using whenMatchedUpdateAll api.
+              # column names and values are required only in case if you use whenMatchedUpdate api.
+              # e.g. o_set:
+              #         column_name_1: col({ds2}.column_name_1)
+              o_set:
+                is_reactivation: col({ds2}.is_reactivation)
+            # Details below will be used to perform action on all the non matching records.
+            m_on_no_match:
+              # Set the value as TRUE if you want to perform an action on matching records.
+              m_is_action_needed: False
+              # Name of the API which you want to invoke. Possible options are.
+              # whenNotMatchedInsert, whenNotMatchedInsertAll
+              m_api: whenNotMatchedInsertAll
+              # Extra condition which you want to check on non matching records.
+              o_condition:
+              # o_set below doesn't need column names if you are using whenNotMatchedInsertAll api.
+              # column names and values are required only in case if you use whenNotMatchedInsert api.
+              # # e.g. o_set:
+              #          column_name_1: col({ds2}.column_name_1)
+              o_set:
+          merge_6:
+            # ReActivation to 0
+            # Location on S3 where LRF files are present.
+            # Pattern - s3://<bucket_name>/pipeline/<pipeline_name>/lrf/<table_name>
+            m_lrf_files_path: s3://<bucket_name>/pipeline/wf_hly_transactions/lrf/stg_act_and_react_and_cancel
+            # Please provide a join condition, this condition will be used to
+            # join target table and load ready file/s.
+            # ds1: target
+            # ds2: lrf
+            m_merge_join_condition: "{ds1}.order_id = {ds2}.order_id and
+                                {ds1}.order_date = {ds2}.order_date and
+                                {ds1}.country_id = {ds2}.country_id and
+                                {ds1}.platform_key = {ds2}.platform_key and
+                                {ds1}.transaction_date_ts = {ds2}.transaction_date_ts and
+                                {ds1}.source_key = {ds2}.source_key and
+                                {ds1}.transaction_date = {ds2}.transaction_date and
+                                {ds2}.flag = 'ioc1'"
+            # This flag controls if you want to dedup your lrf file based
+            # on the join columns or custom columns. Value should be True or
+            # False.
+            o_is_dedup_needed: False
+            # Comma separated list of column names on which dedup
+            # needs to be done. It is highly recommended
+            # that you should use the same columns for dedup
+            # on which you are joining lrf and target table.
+            # e.g. o_dedup_columns: 'col1,col2,col3'
+            o_dedup_columns:
+            # Details below will be used to perform action on all the matching records.
+            m_on_match:
+              # Set the value as True if you want to perform an action on matching records.
+              m_is_action_needed: True
+              # Name of the API which you want to invoke. Possible options are.
+              # whenMatchedUpdate, whenMatchedUpdateAll, whenMatchedDelete
+              m_api: whenMatchedUpdate
+              # Extra condition which you want to check on matching records.
+              o_condition:
+              # o_set below doesn't need column names if you are using whenMatchedUpdateAll api.
+              # column names and values are required only in case if you use whenMatchedUpdate api.
+              # e.g. o_set:
+              #         column_name_1: col({ds2}.column_name_1)
+              o_set:
+                is_order_canceled: col({ds2}.is_order_canceled)
+            # Details below will be used to perform action on all the non matching records.
+            m_on_no_match:
+              # Set the value as TRUE if you want to perform an action on matching records.
+              m_is_action_needed: False
+              # Name of the API which you want to invoke. Possible options are.
+              # whenNotMatchedInsert, whenNotMatchedInsertAll
+              m_api: whenNotMatchedInsertAll
+              # Extra condition which you want to check on non matching records.
+              o_condition:
+              # o_set below doesn't need column names if you are using whenNotMatchedInsertAll api.
+              # column names and values are required only in case if you use whenNotMatchedInsert api.
+              # # e.g. o_set:
+              #          column_name_1: col({ds2}.column_name_1)
+              o_set:
+    # Details about msck repair utility which needs to be performed to reflect back the updated
+    # data in hive external table. msck repair needs to be done only for partitioned tables.
+    m_run_msck_repair:
+      # Set to TRUE if msck repair needs to be done after spark job is completed else set to FALSE.
+      # Should be set to TRUE only for the partitioned tables.
+      # DFEAULT value is False.
+      m_is_msck_repair_required: FALSE
+      # Name of the hive database where external table is created.
+      m_database_name: edwprod
+      # Name of the external table.
+      m_table_name: fact_gbl_transactions
+      m_hive_database_name: edwprod
+      # Name of the external table.
+      m_hive_table_name: fact_gbl_transactions
+      # Details about the extra columns which can be added to the data frame.
+      # These columns are not supposed to be business columns instead it should be
+      # used for non-business columns. e.g. insert_user_id, insert_time.
+      # You can provide 1 to many columns in the format below.
+      # If you don't have any extra column to add, just don't add any of column keys
+      # which starts with o_column.
+      # Please use below format to provide extra columns.
+      # Details of first column.
+      #      o_column_1:
+      #        # Name of the first column.
+      #        m_column_name:
+      #        # DataType of the first column.
+      #        m_column_type:
+      #        # Value of the first column.
+      #        m_column_value:
+    o_extra_columns:
+
+  ############################################################################################################
+  ##### DEFAULT SECTION -  In an ideal scenario you shouldn't be overriding any of the below values    #######
+  #####                    unless you are 100% confident of what you are doing. All the values below   #######
+  #####                    will either be read from SystemsManager or will be derived using user input #######
+  #####                    and global variables.                                                       #######
+  ############################################################################################################
+
+
+  # Whether to stop the spark session on job completion or not.
+  # This value should always be True, unless you are running unit tests.
+  # Default value is True.
+  m_stop_spark_session_on_completion: DEFAULT
+  # Provide Cluster information.
+  m_cluster:
+    # Spark Application Name.
+    # Default value will be pipeline name.
+    m_app_name: DERIVED
+    # Resource Manager for your cluster. Should always be yarn.
+    # Default Value is yarn.
+    m_master: DEFAULT
+  # All the bookkeeping tasks will be defined here.
+  # As of now only 3 types of tasks are defined.
+  #   1. DeltaLogRenameTask
+  #   2. StatusFileCreationTask
+  #   3. AuditTableTask
+  # If more type of tasks are added in future we will update you.
+  m_book_keeping:
+    # Name of the DeltaLogRenameTask
+    m_t_delta_log_rename:
+      # Should be set to TRUE if you want to rename _delta_log directory after spark job is completed else set False.
+      m_is_delta_log_rename_required: False
+      # Name of the S3 bucket where this delta log directory will be moved after rename.
+      m_bucket_name: DEFAULT
+      # Location where _delta_log directory is created after the job completion.
+      # In most of the cases this directory is created where your target table is present.
+      # Pattern will be - s3://<bucket_name>/<target>/<db_name>/<table_name>/_delta_log.
+      # DEFAULT value will be constructed using above pattern.
+      m_old_delta_log_dir_name: DERIVED
+      # Location where _delta_log directory will be copied.
+      # Ideally it should be under backup/delta_logs directory under your pipeline on S3.
+      # Pattern should be s3://<bucket_name>/<pipeline_name>/<table_name>/<backup>/delta_logs
+      # DEFAULT value will be constructed using above pattern.
+      m_new_delta_log_dir_path: DERIVED
+      # This is an optional field, if you don't provide a name here, Pinion will generate
+      # a new name using the following convention.
+      # <pipeline_name>_<table_name>_delta_log_<time_stamp>
+      o_new_delta_log_dir_name: DEFAULT
+    # Name of the StatusFileCreationTask
+    m_t_status_file_creation:
+      # Should be set to TRUE if you want Pinion to generate a status file after spark job is completed else set False.
+      m_is_status_file_required: DEFAULT
+      # Name of the S3 bucket where status file will be created after spark job is completed.
+      m_bucket_name: DEFAULT
+      # Location on S3 where you want this status file to be created.
+      # By default status file will be created under target table name.
+      # Pattern - s3://<bucket_name>/<target>/<db_name>/<table_name>/_delta_log
+      o_file_path: DERIVED
+      # Name of the status file.
+      # Default value is .done.
+      m_file_name: DEFAULT
+    # Name of the AuditTableTask.
+    # This task will make an entry in JOB_INSTANCES & TABLE_LIMITS table.
+    m_t_audit_table_entry:
+      # Should be set to TRUE if you want to make an entry into audit table after spark job is completed else set False.
+      m_is_audit_table_entry_required: DEFAULT
+      # Secret name of the connection on Secret Manager.
+      # It will be read from
+      m_secret_name: DEFAULT
+      # region in which secret was created.
+      m_region_name: DEFAULT
